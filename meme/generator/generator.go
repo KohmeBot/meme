@@ -133,6 +133,10 @@ func (g *MemeGenerator) getInfos(keys []string) (descMp map[string]CommandDesc, 
 			defer wg.Done()
 			dcs[idx], errorSlice[idx] = g.getInfo(key)
 		})
+		if idx%10 == 0 {
+			// 每10个等一下
+			wg.Wait()
+		}
 	}
 	wg.Wait()
 	err = errors.Join(errorSlice...)

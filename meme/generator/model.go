@@ -20,7 +20,7 @@ import (
 type CommandDesc struct {
 	Key      string   `json:"key"`
 	Keywords []string `json:"keywords"`
-	Params   `json:"params"`
+	Params   `json:"params_type"`
 }
 
 // KeywordsMappingKeyTo 映射关键词
@@ -99,9 +99,6 @@ type Response struct {
 }
 
 func (r *Request) ParseArgs(args []string, desc CommandDesc) error {
-	if len(args) < 0 {
-		return nil
-	}
 	for _, arg := range args {
 		k, ok := strings.CutPrefix(arg, "-")
 		if ok {
@@ -128,16 +125,16 @@ func (r *Request) ParseArgs(args []string, desc CommandDesc) error {
 // Validate 验证req和desc是否一致
 func (r *Request) Validate(desc CommandDesc) error {
 	if len(r.ImageUrls) < desc.MinImages {
-		return fmt.Errorf("最少需要%d张图片", desc.MinImages)
+		return fmt.Errorf("最少需要%d张图片 (%d/%d)", desc.MinImages, len(r.ImageUrls), desc.MinImages)
 	}
 	if len(r.ImageUrls) > desc.MaxImages {
 		return fmt.Errorf("最多支持%d张图片", desc.MaxImages)
 	}
 	if len(r.Texts) < desc.MinTexts {
-		return fmt.Errorf("最少需要%d条文字", desc.MinTexts)
+		return fmt.Errorf("最少需要%d条文本 (%d/%d)", desc.MinTexts, len(r.Texts), desc.MinTexts)
 	}
 	if len(r.Texts) > desc.MaxTexts {
-		return fmt.Errorf("最多支持%d条文字", desc.MaxTexts)
+		return fmt.Errorf("最多支持%d条文本", desc.MaxTexts)
 	}
 	return nil
 
@@ -205,7 +202,6 @@ func (r *Request) encodeArgJson() error {
 	if err != nil {
 		return err
 	}
-
 	r.Args = unsafe.String(unsafe.SliceData(jsonData), len(jsonData))
 	return nil
 }

@@ -2,6 +2,7 @@ package meme
 
 import (
 	"sync"
+	"time"
 )
 
 type Tasks struct {
@@ -27,4 +28,26 @@ func (t *Tasks) Done(uid int64) {
 	t.rw.Lock()
 	defer t.rw.Unlock()
 	t.tasks[uid] = false
+}
+
+type TaskDuration struct {
+	dur time.Duration
+	rw  sync.RWMutex
+	tMp map[int64]time.Time
+}
+
+func NewTaskDuration(dur time.Duration) *TaskDuration {
+	return &TaskDuration{dur: dur, tMp: map[int64]time.Time{}}
+}
+
+func (t *TaskDuration) AddTask(gid int64) bool {
+	now := time.Now()
+	t.rw.Lock()
+	defer t.rw.Unlock()
+	last, ok := t.tMp[gid]
+	if !ok || now.Sub(last) > t.dur {
+		t.tMp[gid] = now
+		return true
+	}
+	return false
 }

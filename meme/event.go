@@ -7,6 +7,8 @@ import (
 	zero "github.com/wdvxdr1123/ZeroBot"
 	"github.com/wdvxdr1123/ZeroBot/extension/shell"
 	"github.com/wdvxdr1123/ZeroBot/message"
+	"strconv"
+	"strings"
 )
 
 func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
@@ -17,7 +19,6 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 			return
 		}
 		gopool.Go(func() {
-			// TODO 为每个人限流
 			var err error
 			defer func() {
 				if err != nil {
@@ -27,7 +28,7 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 			}()
 
 			arguments := shell.Parse(ctx.State["args"].(string))
-			if len(arguments) < 0 {
+			if len(arguments) <= 0 {
 				err = fmt.Errorf("参数错误")
 				return
 			}
@@ -37,7 +38,7 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 				err = fmt.Errorf(`"%s"不支持`, keyword)
 				return
 			}
-			desc := p.dcsMp[key]
+			desc := p.descMp[key]
 			req := generator.Request{
 				Key: key,
 			}
@@ -51,6 +52,10 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 				switch segment.Type {
 				case "image":
 					url := segment.Data["url"]
+					req.ImageUrls = append(req.ImageUrls, url)
+				case "at":
+					qq, _ := strconv.Atoi(segment.Data["qq"])
+					url := fmt.Sprintf("https://q4.qlogo.cn/g?b=qq&nk=%d&s=%d", qq, p.conf.AvatarSizeToParam())
 					req.ImageUrls = append(req.ImageUrls, url)
 				}
 			}
@@ -66,5 +71,27 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 			ctx.SendChain(message.Reply(ctx.Event.MessageID), message.ImageBytes(img))
 		})
 
+	})
+}
+
+func (p *PluginMeme) SetOnHelp(engine *zero.Engine) {
+	engine.OnCommand("mhelp", p.env.Groups().Rule()).Handle(func(ctx *zero.Ctx) {
+		if !p.tt.AddTask(ctx.Event.GroupID) {
+			ctx.Send(message.Text("在不久前好像问过一次了..."))
+			return
+		}
+		var builder strings.Builder
+		builder.WriteString("以下是支持的制图指令:\n")
+		for _, desc := range p.descs {
+			builder.WriteString(fmt.Sprintf("(%s)", strings.Join(desc.Keywords, " ")))
+			if len(desc.Args) > 0 {
+				builder.WriteString("|")
+			}
+			for _, arg := range desc.Args {
+				builder.WriteString(fmt.Sprintf("[-%s]%s", arg.Name, arg.Description))
+			}
+			builder.WriteByte('\n')
+		}
+		ctx.Send(message.Text(builder.String()))
 	})
 }

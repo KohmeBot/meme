@@ -7,15 +7,19 @@ import (
 	"github.com/kohmebot/pkg/version"
 	"github.com/kohmebot/plugin"
 	"github.com/wdvxdr1123/ZeroBot"
+	"slices"
+	"time"
 )
 
 type PluginMeme struct {
 	env       plugin.Env
 	conf      Config
 	g         *generator.MemeGenerator
-	dcsMp     map[string]generator.CommandDesc
+	descMp    map[string]generator.CommandDesc
+	descs     []generator.CommandDesc
 	keywordMp map[string]string
 	t         *Tasks
+	tt        *TaskDuration
 }
 
 func NewPlugin() plugin.Plugin {
@@ -29,16 +33,24 @@ func (p *PluginMeme) Init(engine *zero.Engine, env plugin.Env) error {
 		return err
 	}
 	p.g = generator.NewGenerator(p.conf.Url)
-	p.dcsMp, err = p.g.GetCommands()
+	p.tt = NewTaskDuration(time.Duration(p.conf.HelpDuration) * time.Second)
+	p.descMp, err = p.g.GetCommands()
 	if err != nil {
-		return nil
+		return err
 	}
 
-	for _, desc := range p.dcsMp {
+	for _, desc := range p.descMp {
 		desc.KeywordsMappingKeyTo(p.keywordMp)
+		p.descs = append(p.descs, desc)
 	}
+
+	slices.SortFunc(p.descs, func(i, j generator.CommandDesc) int {
+		// 把最多额外参数的排最后面
+		return len(i.Args) - len(j.Args)
+	})
 
 	p.SetOnCommand(engine)
+	p.SetOnHelp(engine)
 	return nil
 }
 
@@ -52,7 +64,7 @@ func (p *PluginMeme) Description() string {
 
 func (p *PluginMeme) Commands() fmt.Stringer {
 	return command.NewCommands(
-		command.NewCommand("查看生成帮助", "help meme"),
+		command.NewCommand("查看生成帮助", "mhelp"),
 		command.NewCommand("生成图片", "meme"),
 	)
 }
