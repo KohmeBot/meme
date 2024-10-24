@@ -53,7 +53,7 @@ type Params struct {
 	// 默认的文本
 	DefaultTexts []string `json:"default_texts"`
 	// 额外参数
-	Args []Arg `json:"args"`
+	Args []Arg `json:"args_type"`
 }
 
 type Arg struct {
