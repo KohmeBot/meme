@@ -13,51 +13,26 @@ import (
 	"strings"
 )
 
-// CommandRuleWithReply check if the message is a command and trim the command name
-func CommandRuleWithReply(commands ...string) zero.Rule {
+// CommandRuleTrimReply 在匹配前时修剪掉第一个reply的值，在匹配结束时重新插入
+func CommandRuleTrimReply(next zero.Rule) zero.Rule {
 	return func(ctx *zero.Ctx) bool {
 		if len(ctx.Event.Message) == 0 {
 			return false
 		}
-
-		switch ctx.Event.Message[0].Type {
-		case "text":
-		case "reply":
+		if ctx.Event.Message[0].Type == "reply" {
 			raw := ctx.Event.Message
 			ctx.Event.Message = ctx.Event.Message[1:]
 			defer func() {
 				ctx.Event.Message = raw
 			}()
-		default:
-			return false
 		}
-		if len(ctx.Event.Message) == 0 || ctx.Event.Message[0].Type != "text" {
-			return false
-		}
-
-		first := ctx.Event.Message[0]
-		firstMessage := first.Data["text"]
-		if !strings.HasPrefix(firstMessage, zero.BotConfig.CommandPrefix) {
-			return false
-		}
-		cmdMessage := firstMessage[len(zero.BotConfig.CommandPrefix):]
-		for _, command := range commands {
-			if strings.HasPrefix(cmdMessage, command) {
-				ctx.State["command"] = command
-				arg := strings.TrimLeft(cmdMessage[len(command):], " ")
-				if len(ctx.Event.Message) > 1 {
-					arg += ctx.Event.Message[1:].ExtractPlainText()
-				}
-				ctx.State["args"] = arg
-				return true
-			}
-		}
-		return false
+		return next(ctx)
 	}
+
 }
 
 func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
-	engine.OnMessage(CommandRuleWithReply("meme"), p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	engine.OnMessage(CommandRuleTrimReply(zero.CommandRule("meme")), p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
 		uid := ctx.Event.UserID
 		if !p.t.AddTask(uid) {
 			ctx.SendChain(message.Reply(ctx.Event.MessageID), message.Text("你还有正在进行中的任务哦"))
