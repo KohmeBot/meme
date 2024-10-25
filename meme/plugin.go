@@ -71,7 +71,7 @@ func (p *PluginMeme) Commands() fmt.Stringer {
 }
 
 func (p *PluginMeme) Version() uint64 {
-	return uint64(version.NewVersion(0, 0, 10))
+	return uint64(version.NewVersion(0, 0, 20))
 }
 
 func (p *PluginMeme) OnBoot() {

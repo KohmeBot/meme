@@ -27,7 +27,9 @@ type CommandDesc struct {
 
 // SortKeywords 将关键字从小到大排列
 func (d *CommandDesc) SortKeywords() {
-	slices.Sort(d.Keywords)
+	slices.SortFunc(d.Keywords, func(a, b string) int {
+		return len(a) - len(b)
+	})
 }
 
 // KeywordsMappingKeyTo 映射关键词

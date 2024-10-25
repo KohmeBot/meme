@@ -13,8 +13,51 @@ import (
 	"strings"
 )
 
+// CommandRuleWithReply check if the message is a command and trim the command name
+func CommandRuleWithReply(commands ...string) zero.Rule {
+	return func(ctx *zero.Ctx) bool {
+		if len(ctx.Event.Message) == 0 {
+			return false
+		}
+
+		switch ctx.Event.Message[0].Type {
+		case "text":
+		case "reply":
+			raw := ctx.Event.Message
+			ctx.Event.Message = ctx.Event.Message[1:]
+			defer func() {
+				ctx.Event.Message = raw
+			}()
+		default:
+			return false
+		}
+		if len(ctx.Event.Message) == 0 || ctx.Event.Message[0].Type != "text" {
+			return false
+		}
+
+		first := ctx.Event.Message[0]
+		firstMessage := first.Data["text"]
+		if !strings.HasPrefix(firstMessage, zero.BotConfig.CommandPrefix) {
+			return false
+		}
+		cmdMessage := firstMessage[len(zero.BotConfig.CommandPrefix):]
+		for _, command := range commands {
+			if strings.HasPrefix(cmdMessage, command) {
+				ctx.State["command"] = command
+				arg := strings.TrimLeft(cmdMessage[len(command):], " ")
+				if len(ctx.Event.Message) > 1 {
+					arg += ctx.Event.Message[1:].ExtractPlainText()
+				}
+				ctx.State["args"] = arg
+				return true
+			}
+		}
+		return false
+	}
+}
+
 func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
-	engine.OnCommand("meme", p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+	engine.OnMessage(CommandRuleWithReply("meme"), p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
 		uid := ctx.Event.UserID
 		if !p.t.AddTask(uid) {
 			ctx.SendChain(message.Reply(ctx.Event.MessageID), message.Text("你还有正在进行中的任务哦"))
@@ -49,18 +92,9 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 				return
 			}
 
-			for _, segment := range ctx.Event.Message {
-				switch segment.Type {
-				case "image":
-					fileName := segment.Data["file"]
-					res := ctx.GetImage(fileName)
-					req.Images = append(req.Images, &generator.Image{FileName: res.Map()["file"].String()})
-				case "at":
-					qq, _ := strconv.Atoi(segment.Data["qq"])
-					url := fmt.Sprintf("https://q4.qlogo.cn/g?b=qq&nk=%d&s=%d", qq, p.conf.AvatarSizeToParam())
-					req.Images = append(req.Images, &generator.Image{Url: url})
-				}
-			}
+			// 解析消息
+
+			parseMessageToReq(ctx, ctx.Event.Message, &req, p.conf.AvatarSizeToParam())
 
 			err = req.Validate(desc)
 			if err != nil {
@@ -177,4 +211,28 @@ func (p *PluginMeme) searchDesc(k string) (desc generator.CommandDesc, ok bool) 
 		desc, ok = p.descMp[k]
 	}
 	return
+}
+
+// parseMessageToReq 解析消息到请求
+func parseMessageToReq(ctx *zero.Ctx, message message.Message, req *generator.Request, avatarSize int) {
+	for _, segment := range message {
+		switch segment.Type {
+		case "reply":
+			// TODO 需要剔除上一个消息的reply
+			id := segment.Data["id"]
+			msgs := ctx.GetMessage(id).Elements
+			if len(msgs) > 0 && msgs[0].Type == "reply" {
+				msgs = msgs[1:]
+			}
+			parseMessageToReq(ctx, msgs, req, avatarSize)
+		case "image":
+			fileName := segment.Data["file"]
+			res := ctx.GetImage(fileName)
+			req.Images = append(req.Images, &generator.Image{FileName: res.Map()["file"].String()})
+		case "at":
+			qq, _ := strconv.Atoi(segment.Data["qq"])
+			url := fmt.Sprintf("https://q4.qlogo.cn/g?b=qq&nk=%d&s=%d", qq, avatarSize)
+			req.Images = append(req.Images, &generator.Image{Url: url})
+		}
+	}
 }
