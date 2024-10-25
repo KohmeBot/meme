@@ -19,6 +19,7 @@ type MemeGenerator struct {
 }
 
 func NewGenerator(api string) *MemeGenerator {
+
 	return &MemeGenerator{
 		Url: api + "/" + "memes/",
 		cli: &http.Client{},
@@ -41,17 +42,14 @@ func (g *MemeGenerator) Generate(doReq *Request) ([]byte, error) {
 		}
 	}
 
-	if len(doReq.ImageUrls) > 0 {
-		err := doReq.loadImagesFromUrl(g.cli)
-		if err != nil {
-			return nil, err
-		}
+	err := doReq.LoadImages(g.cli)
+	if err != nil {
+		return nil, err
 	}
-	doReq.countImageHash()
 	buf := newBuffer()
 	defer buf.Recycle()
 	wr := multipart.NewWriter(buf)
-	err := doReq.writeFormTo(wr)
+	err = doReq.writeFormTo(wr)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +77,33 @@ func (g *MemeGenerator) Generate(doReq *Request) ([]byte, error) {
 		return nil, fmt.Errorf("status %d: %v", resp.StatusCode, err)
 	}
 	return nil, fmt.Errorf("status %d: %s", resp.StatusCode, r.Detail)
+}
+
+func (g *MemeGenerator) GetPreview(key string) ([]byte, error) {
+	url := g.Url + key + "/" + "preview"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := g.cli.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		r := Response{}
+		err = json.Unmarshal(buf, &r)
+		if err != nil {
+			return nil, fmt.Errorf("status %d: %s", resp.StatusCode, err.Error())
+		}
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, r.Detail)
+
+	}
+	return buf, nil
 }
 
 func (g *MemeGenerator) getKeys() ([]string, error) {

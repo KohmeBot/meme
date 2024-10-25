@@ -18,7 +18,7 @@ type PluginMeme struct {
 	descMp    map[string]generator.CommandDesc
 	descs     []generator.CommandDesc
 	keywordMp map[string]string
-	t         *Tasks
+	t         *HelpTasks
 	tt        *TaskDuration
 }
 
@@ -40,13 +40,13 @@ func (p *PluginMeme) Init(engine *zero.Engine, env plugin.Env) error {
 	}
 
 	for _, desc := range p.descMp {
+		desc.SortKeywords()
 		desc.KeywordsMappingKeyTo(p.keywordMp)
 		p.descs = append(p.descs, desc)
 	}
 
 	slices.SortFunc(p.descs, func(i, j generator.CommandDesc) int {
-		// 把最多额外参数的排最后面
-		return len(i.Args) - len(j.Args)
+		return len(i.Keywords[0]) - len(j.Keywords[0])
 	})
 
 	p.SetOnCommand(engine)
@@ -64,8 +64,9 @@ func (p *PluginMeme) Description() string {
 
 func (p *PluginMeme) Commands() fmt.Stringer {
 	return command.NewCommands(
-		command.NewCommand("查看生成帮助", "mhelp"),
-		command.NewCommand("生成图片", "meme"),
+		command.NewCommand("查看支持的指令", "mhelp"),
+		command.NewCommand("查看对应的生成帮助", "mhelp [keyword]"),
+		command.NewCommand("生成图片", "meme [keyword]"),
 	)
 }
 

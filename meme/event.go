@@ -3,8 +3,10 @@ package meme
 import (
 	"fmt"
 	"github.com/kohmebot/meme/meme/generator"
+	"github.com/kohmebot/pkg/chain"
 	"github.com/kohmebot/pkg/gopool"
 	zero "github.com/wdvxdr1123/ZeroBot"
+	"github.com/wdvxdr1123/ZeroBot/extension"
 	"github.com/wdvxdr1123/ZeroBot/extension/shell"
 	"github.com/wdvxdr1123/ZeroBot/message"
 	"strconv"
@@ -33,14 +35,13 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 				return
 			}
 			keyword := arguments[0]
-			key, ok := p.keywordMp[keyword]
+			desc, ok := p.searchDesc(keyword)
 			if !ok {
 				err = fmt.Errorf(`"%s"不支持`, keyword)
 				return
 			}
-			desc := p.descMp[key]
 			req := generator.Request{
-				Key: key,
+				Key: desc.Key,
 			}
 
 			err = req.ParseArgs(arguments[1:], desc)
@@ -51,12 +52,13 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 			for _, segment := range ctx.Event.Message {
 				switch segment.Type {
 				case "image":
-					url := segment.Data["url"]
-					req.ImageUrls = append(req.ImageUrls, url)
+					fileName := segment.Data["file"]
+					res := ctx.GetImage(fileName)
+					req.Images = append(req.Images, &generator.Image{FileName: res.Map()["file"].String()})
 				case "at":
 					qq, _ := strconv.Atoi(segment.Data["qq"])
 					url := fmt.Sprintf("https://q4.qlogo.cn/g?b=qq&nk=%d&s=%d", qq, p.conf.AvatarSizeToParam())
-					req.ImageUrls = append(req.ImageUrls, url)
+					req.Images = append(req.Images, &generator.Image{Url: url})
 				}
 			}
 
@@ -75,23 +77,104 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 }
 
 func (p *PluginMeme) SetOnHelp(engine *zero.Engine) {
-	engine.OnCommand("mhelp", p.env.Groups().Rule()).Handle(func(ctx *zero.Ctx) {
-		if !p.tt.AddTask(ctx.Event.GroupID) {
-			ctx.Send(message.Text("在不久前好像问过一次了..."))
+	engine.OnCommand("mhelp", p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
+		var cmd extension.CommandModel
+		err := ctx.Parse(&cmd)
+		if err != nil {
+			p.env.Error(ctx, err)
 			return
 		}
-		var builder strings.Builder
-		builder.WriteString("以下是支持的制图指令:\n")
-		for _, desc := range p.descs {
-			builder.WriteString(fmt.Sprintf("(%s)", strings.Join(desc.Keywords, " ")))
-			if len(desc.Args) > 0 {
-				builder.WriteString("|")
+		gopool.Go(func() {
+			uid := ctx.Event.UserID
+			gid := ctx.Event.GroupID
+			if len(cmd.Args) > 0 {
+				if !p.t.AddTask(uid) {
+					ctx.SendChain(message.Reply(ctx.Event.MessageID), message.Text("你还有正在进行中的任务哦"))
+					return
+				}
+				p.handleTargetHelp(ctx, cmd.Args)
+				p.t.Done(uid)
+			} else {
+				ok, id := p.tt.AddTask(gid)
+				if !ok {
+					ctx.SendChain(message.Reply(id), message.At(uid), message.Text(" 之前已经说过一次了..."))
+					return
+				}
+				p.tt.Done(gid, p.handleAllHelp(ctx))
+
 			}
-			for _, arg := range desc.Args {
-				builder.WriteString(fmt.Sprintf("[-%s]%s", arg.Name, arg.Description))
-			}
-			builder.WriteByte('\n')
-		}
-		ctx.Send(message.Text(builder.String()))
+		})
+
 	})
+}
+
+func (p *PluginMeme) handleTargetHelp(ctx *zero.Ctx, target string) {
+	var err error
+	defer func() {
+		if err != nil {
+			p.env.Error(ctx, err)
+			return
+		}
+	}()
+	target = strings.TrimSpace(target)
+	desc, ok := p.searchDesc(target)
+	if !ok {
+		err = fmt.Errorf(`"%s"不支持`, target)
+		return
+	}
+
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf("指令详情：\n"))
+	builder.WriteString("@某人会获取对方的头像\n")
+	builder.WriteString(fmt.Sprintf("Key：%s\n", desc.Key))
+	builder.WriteString(fmt.Sprintf("可触发指令：%s\n", strings.Join(desc.Keywords, " ")))
+	builder.WriteString(fmt.Sprintf("最少需要图片数：%d\n", desc.MinImages))
+	builder.WriteString(fmt.Sprintf("最多支持图片数：%d\n", desc.MaxImages))
+	builder.WriteString(fmt.Sprintf("最少需要文本数：%d\n", desc.MinTexts))
+	builder.WriteString(fmt.Sprintf("最多支持文本数：%d\n", desc.MaxTexts))
+	if len(desc.DefaultTexts) > 0 {
+		builder.WriteString(fmt.Sprintf("默认文本: %s\n", strings.Join(desc.DefaultTexts, " ")))
+	}
+	if desc.Args.Len() > 0 {
+		builder.WriteString(fmt.Sprintf("额外参数：\n"))
+		for name, arg := range desc.Args.Range {
+			builder.WriteString(fmt.Sprintf("[-%s](%s)%s", name, arg.Type, arg.Description))
+			if len(arg.Enum) > 0 {
+				builder.WriteString(fmt.Sprintf("<%s>", strings.Join(arg.Enum, " ")))
+			}
+		}
+		builder.WriteByte('\n')
+	}
+	builder.WriteString(fmt.Sprintf("生成预览："))
+	var msgChain chain.MessageChain
+	msgChain.Join(message.Reply(ctx.Event.MessageID))
+	msgChain.Line(message.Text(builder.String()))
+	img, pErr := p.g.GetPreview(desc.Key)
+	if pErr != nil {
+		msgChain.Join(message.Text(fmt.Sprintf("生成预览失败: %s", pErr.Error())))
+	} else {
+		msgChain.Join(message.ImageBytes(img))
+	}
+	ctx.Send(msgChain)
+
+}
+
+func (p *PluginMeme) handleAllHelp(ctx *zero.Ctx) message.MessageID {
+	var builder strings.Builder
+	builder.WriteString("以下是支持的制图指令\n可通过mhelp [keyword]来查看对应详情\n")
+	for _, desc := range p.descs {
+		builder.WriteByte(' ')
+		builder.WriteString(fmt.Sprintf("(%s)", desc.Keywords[0]))
+	}
+	return ctx.Send(message.Text(builder.String()))
+}
+
+func (p *PluginMeme) searchDesc(k string) (desc generator.CommandDesc, ok bool) {
+	key, ok := p.keywordMp[k]
+	if ok {
+		desc, ok = p.descMp[key]
+	} else {
+		desc, ok = p.descMp[k]
+	}
+	return
 }

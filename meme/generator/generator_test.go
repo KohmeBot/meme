@@ -21,8 +21,8 @@ func TestGetCommands(t *testing.T) {
 func TestGenerate(t *testing.T) {
 	g := NewGenerator("http://127.0.0.1:2233")
 	req := &Request{
-		Key:       "anya_suki",
-		ImageUrls: []string{"https://pica.zhimg.com/70/v2-da40e549a90d4d5e95af35e532a7f608_1440w.avis?source=172ae18b&biz_tag=Post"},
+		Key:    "anya_suki",
+		Images: []*Image{&Image{Url: "https://pica.zhimg.com/70/v2-da40e549a90d4d5e95af35e532a7f608_1440w.avis?source=172ae18b&biz_tag=Post"}},
 	}
 	img, err := g.Generate(req)
 	if err != nil {

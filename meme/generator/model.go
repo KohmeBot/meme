@@ -10,6 +10,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +25,11 @@ type CommandDesc struct {
 	Params   `json:"params_type"`
 }
 
+// SortKeywords 将关键字从小到大排列
+func (d *CommandDesc) SortKeywords() {
+	slices.Sort(d.Keywords)
+}
+
 // KeywordsMappingKeyTo 映射关键词
 func (d *CommandDesc) KeywordsMappingKeyTo(to map[string]string) {
 	for _, keyword := range d.Keywords {
@@ -31,8 +38,8 @@ func (d *CommandDesc) KeywordsMappingKeyTo(to map[string]string) {
 }
 
 func (d *CommandDesc) ParseArgs(k, v string) (val any, found bool, err error) {
-	for _, arg := range d.Args {
-		if arg.Name == k {
+	for name, arg := range d.Args.Properties {
+		if name == k {
 			val, err = arg.ParseValue(v)
 			found = true
 			return
@@ -53,12 +60,37 @@ type Params struct {
 	// 默认的文本
 	DefaultTexts []string `json:"default_texts"`
 	// 额外参数
-	Args []Arg `json:"args_type"`
+	Args ArgsType `json:"args_type"`
+}
+
+type ArgsType struct {
+	ArgsModel `json:"args_model"`
+}
+
+type ArgsModel struct {
+	Properties map[string]Arg `json:"properties"`
+}
+
+func (a *ArgsModel) Len() int {
+	_, ok := a.Properties["user_infos"]
+	if ok {
+		return len(a.Properties) - 1
+	}
+	return len(a.Properties)
+}
+
+func (a *ArgsModel) Range(yield func(name string, arg Arg) bool) {
+	for k, v := range a.Properties {
+		if k == "user_infos" {
+			continue
+		}
+		if !yield(k, v) {
+			return
+		}
+	}
 }
 
 type Arg struct {
-	// 参数名称
-	Name string `json:"name"`
 	// 参数类型
 	Type string `json:"type"`
 	// 参数描述
@@ -84,25 +116,67 @@ func (a *Arg) ParseValue(s string) (any, error) {
 }
 
 type Request struct {
-	Key       string
-	Images    [][]byte
-	ImageUrls []string
-	imagesMd5 []string
-	Texts     []string
-	ArgsRaw   map[string]any
+	Key     string
+	Images  []*Image
+	Texts   []string
+	ArgsRaw map[string]any
 	// json 字符串 由 ArgsRaw 生成
 	Args string
+}
+
+type Image struct {
+	Url      string
+	Raw      []byte
+	FileName string
+	Md5      string
+}
+
+func (i *Image) LoadAnyToRaw(cli *http.Client) (err error) {
+	defer func() {
+		if len(i.Raw) > 0 && err != nil {
+			hash := md5.Sum(i.Raw)
+			// 将哈希值转换为字符串表示
+			i.Md5 = hex.EncodeToString(hash[:])
+		}
+	}()
+	if len(i.Raw) > 0 {
+		return nil
+	}
+	if len(i.Url) > 0 {
+		i.Raw, err = DownloadImage(cli, i.Url)
+		return
+	}
+	if len(i.FileName) > 0 {
+		i.Raw, err = LoadImageFromFile(i.FileName)
+		return
+	}
+	return nil
+
 }
 
 type Response struct {
 	Detail string `json:"detail"`
 }
 
+func (r *Request) LoadImages(cli *http.Client) error {
+	es := make([]error, len(r.Images))
+	wg := sync.WaitGroup{}
+	for idx, image := range r.Images {
+		wg.Add(1)
+		gopool.Go(func() {
+			defer wg.Done()
+			es[idx] = image.LoadAnyToRaw(cli)
+		})
+	}
+	wg.Wait()
+	return errors.Join(es...)
+}
+
 func (r *Request) ParseArgs(args []string, desc CommandDesc) error {
 	for _, arg := range args {
 		k, ok := strings.CutPrefix(arg, "-")
 		if ok {
-			split := strings.SplitN(k, "=", 1)
+			split := strings.SplitN(k, "=", 2)
 			if len(split) < 2 {
 				continue
 			}
@@ -112,6 +186,9 @@ func (r *Request) ParseArgs(args []string, desc CommandDesc) error {
 			if found {
 				if err != nil {
 					return err
+				}
+				if r.ArgsRaw == nil {
+					r.ArgsRaw = make(map[string]any)
 				}
 				r.ArgsRaw[k] = val
 			}
@@ -124,10 +201,10 @@ func (r *Request) ParseArgs(args []string, desc CommandDesc) error {
 
 // Validate 验证req和desc是否一致
 func (r *Request) Validate(desc CommandDesc) error {
-	if len(r.ImageUrls) < desc.MinImages {
-		return fmt.Errorf("最少需要%d张图片 (%d/%d)", desc.MinImages, len(r.ImageUrls), desc.MinImages)
+	if len(r.Images) < desc.MinImages {
+		return fmt.Errorf("最少需要%d张图片 (%d/%d)", desc.MinImages, len(r.Images), desc.MinImages)
 	}
-	if len(r.ImageUrls) > desc.MaxImages {
+	if len(r.Images) > desc.MaxImages {
 		return fmt.Errorf("最多支持%d张图片", desc.MaxImages)
 	}
 	if len(r.Texts) < desc.MinTexts {
@@ -156,45 +233,18 @@ func (r *Request) writeFormTo(w *multipart.Writer) (err error) {
 
 	// 写入图片字段
 	for idx, image := range r.Images {
-		m := r.imagesMd5[idx]
-		part, err := w.CreateFormFile("images", m)
+		m := r.Images[idx]
+		part, err := w.CreateFormFile("images", m.Md5)
 		if err != nil {
 			return fmt.Errorf("error creating form file: %v", err)
 		}
-		_, err = part.Write(image)
+		_, err = part.Write(image.Raw)
 		if err != nil {
 			return fmt.Errorf("error writing image data: %v", err)
 		}
 	}
 	return
 
-}
-
-func (r *Request) loadImagesFromUrl(cli *http.Client) error {
-	wg := sync.WaitGroup{}
-	if cap(r.Images) < len(r.ImageUrls) {
-		r.Images = make([][]byte, 0, len(r.ImageUrls))
-	}
-	r.Images = r.Images[:len(r.ImageUrls)]
-	errorSlice := make([]error, len(r.ImageUrls))
-	for idx, url := range r.ImageUrls {
-		wg.Add(1)
-		gopool.Go(func() {
-			defer wg.Done()
-			r.Images[idx], errorSlice[idx] = DownloadImage(cli, url)
-		})
-	}
-	wg.Wait()
-	return errors.Join(errorSlice...)
-}
-
-func (r *Request) countImageHash() {
-	for _, image := range r.Images {
-		hash := md5.Sum(image)
-		// 将哈希值转换为字符串表示
-		md5String := hex.EncodeToString(hash[:])
-		r.imagesMd5 = append(r.imagesMd5, md5String)
-	}
 }
 
 func (r *Request) encodeArgJson() error {
@@ -223,4 +273,8 @@ func DownloadImage(cli *http.Client, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
+}
+
+func LoadImageFromFile(filename string) ([]byte, error) {
+	return os.ReadFile(filename)
 }
