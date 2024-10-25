@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // MemeGenerator Meme生成器
@@ -32,6 +33,24 @@ func (g *MemeGenerator) GetCommands() (map[string]CommandDesc, error) {
 		return nil, err
 	}
 	return g.getInfos(keys)
+}
+
+func (g *MemeGenerator) GetCommandsWithRetry(dur time.Duration) (map[string]CommandDesc, error) {
+	start := time.Now()
+	retryCount := 0
+	for {
+		res, err := g.GetCommands()
+		if err != nil {
+			if time.Since(start) > dur {
+				return nil, fmt.Errorf("error with retry %d: %w", retryCount, err)
+			}
+			retryCount++
+			time.Sleep(1 << retryCount * time.Millisecond)
+			continue
+		}
+		return res, nil
+	}
+
 }
 
 func (g *MemeGenerator) Generate(doReq *Request) ([]byte, error) {

@@ -34,7 +34,7 @@ func (p *PluginMeme) Init(engine *zero.Engine, env plugin.Env) error {
 	}
 	p.g = generator.NewGenerator(p.conf.Url)
 	p.tt = NewTaskDuration(time.Duration(p.conf.HelpDuration) * time.Second)
-	p.descMp, err = p.g.GetCommands()
+	p.descMp, err = p.g.GetCommandsWithRetry(time.Minute)
 	if err != nil {
 		return err
 	}
