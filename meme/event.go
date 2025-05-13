@@ -11,6 +11,7 @@ import (
 	"github.com/wdvxdr1123/ZeroBot/message"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CommandRuleTrimReply 在匹配前时修剪掉第一个reply的值，在匹配结束时重新插入
@@ -171,11 +172,26 @@ func (p *PluginMeme) handleTargetHelp(ctx *zero.Ctx, target string) {
 func (p *PluginMeme) handleAllHelp(ctx *zero.Ctx) message.MessageID {
 	var builder strings.Builder
 	builder.WriteString("以下是支持的制图指令\n可通过mhelp [keyword]来查看对应详情\n")
-	for _, desc := range p.descs {
-		builder.WriteByte(' ')
-		builder.WriteString(fmt.Sprintf("(%s)", desc.Keywords[0]))
+
+	var result [][]generator.CommandDesc
+	for i := 0; i < len(p.descs); i += 30 {
+		end := i + 30
+		if end > len(p.descs) {
+			end = len(p.descs)
+		}
+		result = append(result, p.descs[i:end])
 	}
-	return ctx.Send(message.Text(builder.String()))
+	// 每30个处理一次
+	var mid message.MessageID
+	for _, descs := range result {
+		for _, desc := range descs {
+			builder.WriteByte(' ')
+			builder.WriteString(fmt.Sprintf("(%s)", desc.Keywords[0]))
+			mid = ctx.Send(message.Text(builder.String()))
+			time.Sleep(time.Second)
+		}
+	}
+	return mid
 }
 
 func (p *PluginMeme) searchDesc(k string) (desc generator.CommandDesc, ok bool) {
