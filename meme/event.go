@@ -187,9 +187,9 @@ func (p *PluginMeme) handleAllHelp(ctx *zero.Ctx) message.MessageID {
 		for _, desc := range descs {
 			builder.WriteByte(' ')
 			builder.WriteString(fmt.Sprintf("(%s)", desc.Keywords[0]))
-			mid = ctx.Send(message.Text(builder.String()))
-			time.Sleep(time.Second)
 		}
+		mid = ctx.Send(message.Text(builder.String()))
+		time.Sleep(time.Second)
 	}
 	return mid
 }
