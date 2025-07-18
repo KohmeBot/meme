@@ -190,6 +190,7 @@ func (p *PluginMeme) handleAllHelp(ctx *zero.Ctx) message.MessageID {
 		}
 		mid = ctx.Send(message.Text(builder.String()))
 		time.Sleep(time.Second)
+		builder.Reset()
 	}
 	return mid
 }
