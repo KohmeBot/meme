@@ -5,6 +5,7 @@ import (
 	"github.com/kohmebot/meme/meme/generator"
 	"github.com/kohmebot/pkg/chain"
 	"github.com/kohmebot/pkg/gopool"
+	"github.com/kohmebot/plugin/v2"
 	zero "github.com/wdvxdr1123/ZeroBot"
 	"github.com/wdvxdr1123/ZeroBot/extension"
 	"github.com/wdvxdr1123/ZeroBot/extension/shell"
@@ -32,7 +33,7 @@ func CommandRuleTrimReply(next zero.Rule) zero.Rule {
 
 }
 
-func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
+func (p *PluginMeme) SetOnCommand(engine plugin.Engine) {
 	engine.OnMessage(CommandRuleTrimReply(zero.CommandRule("meme")), p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
 		uid := ctx.Event.UserID
 		if !p.t.AddTask(uid) {
@@ -86,36 +87,42 @@ func (p *PluginMeme) SetOnCommand(engine *zero.Engine) {
 	})
 }
 
-func (p *PluginMeme) SetOnHelp(engine *zero.Engine) {
-	engine.OnCommand("mhelp", p.env.Groups().Rule()).SetBlock(true).Handle(func(ctx *zero.Ctx) {
-		var cmd extension.CommandModel
-		err := ctx.Parse(&cmd)
-		if err != nil {
-			p.env.Error(ctx, err)
-			return
-		}
-		gopool.Go(func() {
-			uid := ctx.Event.UserID
-			gid := ctx.Event.GroupID
-			if len(cmd.Args) > 0 {
-				if !p.t.AddTask(uid) {
-					ctx.SendChain(message.Reply(ctx.Event.MessageID), message.Text("你还有正在进行中的任务哦"))
-					return
-				}
-				p.handleTargetHelp(ctx, cmd.Args)
-				p.t.Done(uid)
-			} else {
-				ok, id := p.tt.AddTask(gid)
-				if !ok {
-					ctx.SendChain(message.Reply(id), message.At(uid), message.Text(" 之前已经说过一次了..."))
-					return
-				}
-				p.tt.Done(gid, p.handleAllHelp(ctx))
+func (p *PluginMeme) onHelp(ctx *zero.Ctx) {
+	var cmd extension.CommandModel
+	err := ctx.Parse(&cmd)
+	if err != nil {
+		p.env.Error(ctx, err)
+		return
+	}
 
+	// help meme xxxx
+	args := strings.Fields(cmd.Args)
+	if len(args) > 2 {
+		args = args[2:]
+	}
+	cmd.Args = strings.Join(args, " ")
+
+	gopool.Go(func() {
+		uid := ctx.Event.UserID
+		gid := ctx.Event.GroupID
+		if len(cmd.Args) > 0 {
+			if !p.t.AddTask(uid) {
+				ctx.SendChain(message.Reply(ctx.Event.MessageID), message.Text("你还有正在进行中的任务哦"))
+				return
 			}
-		})
+			p.handleTargetHelp(ctx, cmd.Args)
+			p.t.Done(uid)
+		} else {
+			ok, id := p.tt.AddTask(gid)
+			if !ok {
+				ctx.SendChain(message.Reply(id), message.At(uid), message.Text(" 之前已经说过一次了..."))
+				return
+			}
+			p.tt.Done(gid, p.handleAllHelp(ctx))
 
+		}
 	})
+
 }
 
 func (p *PluginMeme) handleTargetHelp(ctx *zero.Ctx, target string) {
