@@ -24,6 +24,7 @@ func NewPlugin() plugin.Plugin {
 }
 
 func (p *PluginMeme) OnInit(engine plugin.Engine, env plugin.Env) error {
+
 	p.env = env
 	err := p.env.GetConf(&p.conf)
 	if err != nil {
