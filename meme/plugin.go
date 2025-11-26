@@ -61,7 +61,7 @@ func (p *PluginMeme) Name() string {
 }
 
 func (p *PluginMeme) Version() string {
-	return "v1.0.0"
+	return "v1.0.1"
 }
 
 func (p *PluginMeme) OnBoot() {
