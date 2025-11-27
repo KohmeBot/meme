@@ -96,9 +96,11 @@ func (p *PluginMeme) onHelp(ctx *zero.Ctx) {
 	}
 
 	// help meme xxxx
-	args := strings.Fields(cmd.Args)
-	if len(args) > 2 {
-		args = args[2:]
+	args := strings.Fields(strings.TrimSpace(cmd.Args))
+	if len(args) > 1 {
+		args = args[1:]
+	} else {
+		args = []string{}
 	}
 	cmd.Args = strings.Join(args, " ")
 
