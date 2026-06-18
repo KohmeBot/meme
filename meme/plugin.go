@@ -23,6 +23,10 @@ func NewPlugin() plugin.Plugin {
 	return &PluginMeme{keywordMp: make(map[string]string), t: NewTasks()}
 }
 
+func (p *PluginMeme) ConfigModel() any {
+	return new(Config)
+}
+
 func (p *PluginMeme) OnInit(engine plugin.Engine, env plugin.Env) error {
 
 	p.env = env
@@ -61,7 +65,7 @@ func (p *PluginMeme) Name() string {
 }
 
 func (p *PluginMeme) Version() string {
-	return "v1.0.2"
+	return "v1.0.3"
 }
 
 func (p *PluginMeme) OnBoot() {
